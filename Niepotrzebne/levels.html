@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Spillway · poziomy</title>
+<style>
+  body { margin: 0; background: #E9E9E4; font: 600 14px "SF Mono", ui-monospace, monospace; color: #1A1A1A; }
+  .lv { margin: 16px; background: #F7F7F4; border: 1.5px solid #1A1A1A; box-shadow: 3px 3px 0 #1A1A1A; }
+  .lv h2 { margin: 0; padding: 8px 12px; font-size: 14px; border-bottom: 1.5px solid #1A1A1A; }
+  canvas { display: block; width: 100%; }
+</style>
+</head>
+<body>
+<script type="module">
+import { World } from '../src/sim/world.js';
+import { LEVELS } from '../src/sim/levels.js';
+import { Painter } from '../src/render/painter.js';
+import { STYLE } from '../src/style.js';
+
+const n = +(new URLSearchParams(location.search).get('n') || 4);
+const W0 = 1600;
+LEVELS.forEach((lv, i) => {
+  const box = document.createElement('div');
+  box.className = 'lv';
+  box.innerHTML = `<h2>${i + 1}. ${lv.name} · w=${lv.w} · tusz ${lv.ink} · woda ${lv.water}${lv.mixer ? ' · mikser' : ''}${lv.order ? ' · kolejność ' + lv.order.join('') : ''}</h2>`;
+  const c = document.createElement('canvas');
+  const scale = W0 / lv.w, h = Math.round(1000 * scale);
+  c.width = W0 * 2; c.height = h * 2;
+  c.style.aspectRatio = `${W0} / ${h}`;
+  box.append(c);
+  document.body.append(box);
+  const w = new World(lv, { n, seed: 1 });
+  const p = new Painter(STYLE);
+  p.bg(c.getContext('2d'), w, 0, scale, 2, W0, h, 0);
+  const g = c.getContext('2d');
+  const f = document.createElement('canvas'); f.width = c.width; f.height = c.height;
+  p.front(f.getContext('2d'), w, 0, scale, 2, W0, h, 0);
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.drawImage(f, 0, 0);
+});
+</script>
+</body>
+</html>

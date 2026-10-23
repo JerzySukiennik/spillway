@@ -1,0 +1,70 @@
+// Drives a full solo run of level 1 in headless Chrome and saves screenshots.
+import { createRequire } from 'node:module';
+const require = createRequire('/Users/jurek/openclaw/node_modules/');
+const { chromium } = require('playwright-core');
+
+const OUT = process.argv[2] || '.';
+const W = 1680, H = 1050;
+const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'] });
+const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 2 });
+const logs = [];
+page.on('console', (m) => { if (!/404/.test(m.text())) logs.push(`[${m.type()}] ${m.text()}`); });
+page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}\n${e.stack}`));
+await page.goto('http://localhost:8643/');
+await page.evaluate(() => localStorage.clear());
+await page.reload();
+await page.waitForTimeout(800);
+await page.screenshot({ path: `${OUT}/01-menu.png` });
+await page.click('button.solo');
+await page.waitForTimeout(600);
+await page.screenshot({ path: `${OUT}/02-shop.png` });
+await page.keyboard.down('d'); await page.waitForTimeout(1200); await page.keyboard.up('d');
+await page.waitForTimeout(400);
+await page.screenshot({ path: `${OUT}/03-shop-stalls.png` });
+await page.evaluate(() => { const s = window.spillway.screen; s.cam = 99999; });
+await page.waitForTimeout(300);
+await page.click('.go-btn');
+await page.waitForTimeout(700);
+await page.screenshot({ path: `${OUT}/04-intro.png` });
+await page.waitForTimeout(1600);
+const info = await page.evaluate(() => { const s = window.spillway.screen; const w = s.world; return { cam: s.cam, scale: s.scale, tanks: w.tanks.map((t) => [t.x, t.y]), cups: w.cups.map((c) => [c.x, c.y, c.c]), ink: w.ink }; });
+logs.push('[info] ' + JSON.stringify(info));
+const toS = (wx, wy, cam) => [(wx - cam) * info.scale, wy * info.scale];
+const drawLine = async (pts, cam) => {
+  const [x0, y0] = toS(...pts[0], cam);
+  await page.mouse.move(x0, y0);
+  await page.mouse.down();
+  for (let k = 1; k < pts.length; k++) {
+    const [a, b] = toS(...pts[k - 1], cam), [c, d] = toS(...pts[k], cam);
+    const n = Math.ceil(Math.hypot(c - a, d - b) / 6);
+    for (let i = 1; i <= n; i++) { await page.mouse.move(a + (c - a) * i / n, b + (d - b) * i / n); if (i % 4 === 0) await page.waitForTimeout(8); }
+  }
+  await page.mouse.up();
+};
+const t = info.tanks[0], cup = info.cups[0];
+const mid = [1450, 236 + (1450 - (t[0] - 70)) * ((cup[1] - 150 - 24 - 236) / ((cup[0] - 38) - (t[0] - 70)))];
+await drawLine([[t[0] - 70, 236], mid], info.cam);
+await page.waitForTimeout(500);
+await page.evaluate(() => { window.spillway.screen.cam = 700; });
+await page.waitForTimeout(200);
+await drawLine([mid, [cup[0] - 38, cup[1] - 150 - 24]], 700);
+await page.waitForTimeout(600);
+await page.evaluate(() => { window.spillway.screen.cam = -60; });
+await page.waitForTimeout(300);
+await page.screenshot({ path: `${OUT}/05-drawn.png` });
+await page.keyboard.down('Space');
+await page.waitForTimeout(2500);
+await page.screenshot({ path: `${OUT}/06-pouring.png` });
+await page.waitForTimeout(3000);
+await page.keyboard.up('Space');
+await page.evaluate(() => { window.spillway.screen.cam = 600; });
+await page.waitForTimeout(2500);
+await page.screenshot({ path: `${OUT}/07-cups.png` });
+const st = await page.evaluate(() => { const s = window.spillway.screen; return s.world ? { tick: s.world.tick, got: s.world.got, left: s.world.tanks.map((t) => t.left), ended: s.world.ended, n: s.world.fluid.n } : { screen: s.constructor.name }; });
+logs.push('[state] ' + JSON.stringify(st));
+await page.waitForTimeout(16000);
+await page.screenshot({ path: `${OUT}/08-results.png` });
+const st2 = await page.evaluate(() => ({ screen: window.spillway.screen.constructor.name, money: window.spillway.room.econ.money, meta: window.spillway.room.meta.lv }));
+logs.push('[after] ' + JSON.stringify(st2));
+console.log(logs.join('\n'));
+await browser.close();

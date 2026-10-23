@@ -1,0 +1,19 @@
+{
+  "rules": {
+    "rooms": {
+      ".read": true,
+      ".indexOn": ["meta/beat"],
+      "$code": {
+        ".write": "$code.matches(/^[A-Z]{4}$/)",
+        "players": {
+          "$uid": {
+            ".validate": "$uid.length <= 40",
+            "n": { ".validate": "newData.isString() && newData.val().length <= 16" }
+          }
+        },
+        "cur": { "$uid": { ".validate": "$uid.length <= 40" } }
+      }
+    },
+    "$other": { ".read": false, ".write": false }
+  }
+}

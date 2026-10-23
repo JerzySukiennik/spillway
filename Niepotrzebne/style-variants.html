@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spillway · warianty stylu</title>
+<style>
+  :root { --font: "SF Pro Rounded", ui-rounded, -apple-system, system-ui, sans-serif; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; background: #1b1b1d; overflow: hidden; font-family: -apple-system, system-ui, sans-serif; }
+  #grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 6px; height: 100vh; padding: 6px; }
+  #grid.solo { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+  #grid.solo .tile:not(.on) { display: none; }
+  .tile { position: relative; overflow: hidden; border-radius: 10px; cursor: zoom-in; }
+  #grid.solo .tile { cursor: zoom-out; border-radius: 0; }
+  .tile canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .tag { position: absolute; left: 14px; bottom: 14px; z-index: 5; font: 600 13px -apple-system, system-ui; padding: 6px 10px; border-radius: 8px; background: rgba(20,20,22,.82); color: #fff; letter-spacing: .02em; }
+  .tag b { font-weight: 800; margin-right: 6px; }
+  .hud { position: absolute; inset: 0; pointer-events: none; font-family: var(--f); color: var(--ink); }
+  .top { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .pill { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--panel); border: var(--bd); border-radius: var(--r); box-shadow: var(--sh); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); font-size: 14px; font-weight: 600; }
+  .pumps { display: flex; gap: 8px; align-items: flex-end; }
+  .plunger { position: relative; width: 70px; height: 74px; padding: 0; display: flex; justify-content: center; }
+  .plunger .handle { position: absolute; top: 4px; left: 50%; width: 46px; margin-left: -23px; transition: transform .12s cubic-bezier(.3,1.4,.6,1); }
+  .plunger .bar { display: block; height: 9px; border-radius: 5px; background: var(--ink); }
+  .plunger .rod { display: block; width: 6px; height: 30px; margin: 0 auto; background: var(--rod); }
+  .plunger .box { position: absolute; bottom: 4px; left: 8px; right: 8px; height: 30px; border-radius: calc(var(--r) * .55); background: var(--c); box-shadow: inset 0 -4px 0 rgba(0,0,0,.14); }
+  .plunger .box::after { content: ""; position: absolute; left: 50%; top: 7px; width: 14px; height: 4px; margin-left: -7px; border-radius: 2px; background: rgba(255,255,255,.6); }
+  .plunger.down .handle { transform: translateY(20px); }
+  .plunger.small { width: 44px; height: 50px; opacity: .9; }
+  .plunger.small .handle { width: 30px; margin-left: -15px; top: 3px; }
+  .plunger.small .bar { height: 6px; }
+  .plunger.small .rod { height: 20px; width: 4px; }
+  .plunger.small .box { height: 20px; left: 6px; right: 6px; }
+  .plunger.small.down .handle { transform: translateY(13px); }
+  .plunger.small .box::after { top: 5px; width: 9px; margin-left: -4.5px; height: 3px; }
+  .pwrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .pwrap small { font-size: 11px; font-weight: 600; color: var(--sub); }
+  .mini { width: 220px; height: 44px; padding: 4px; }
+  .mini canvas { position: static; width: 100%; height: 100%; border-radius: calc(var(--r) * .5); }
+  .money { font-variant-numeric: tabular-nums; font-size: 17px; font-weight: 700; }
+  .money .ic { color: var(--sub); }
+  .who { display: flex; gap: 6px; }
+  .who i { width: 10px; height: 10px; border-radius: 50%; background: var(--c); display: inline-block; }
+  .bar2 { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; align-items: center; gap: 4px; padding: 6px; background: var(--panel); border: var(--bd); border-radius: calc(var(--r) + 4px); box-shadow: var(--sh); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); }
+  .slot { position: relative; width: 46px; height: 46px; border-radius: var(--r); display: grid; place-items: center; color: var(--ink); }
+  .slot.sel { background: var(--sel); color: var(--selInk); }
+  .slot .n { position: absolute; right: 3px; bottom: 2px; font-size: 10px; font-weight: 700; color: var(--sub); font-variant-numeric: tabular-nums; }
+  .slot.sel .n { color: var(--selInk); opacity: .7; }
+  .slot.off { opacity: .32; }
+  .slot .ink { position: absolute; left: 8px; right: 8px; bottom: 5px; height: 3px; border-radius: 2px; background: var(--track); overflow: hidden; }
+  .slot .ink i { display: block; height: 100%; width: 64%; background: currentColor; }
+  .sep { width: 1px; height: 26px; background: var(--sep); margin: 0 4px; }
+  .end { position: absolute; right: 12px; bottom: 14px; }
+  .btn { padding: 10px 14px; font-weight: 650; font-size: 13px; }
+</style>
+</head>
+<body>
+<div id="grid"></div>
+<script type="module">
+import { World } from '../src/sim/world.js';
+import { WaterRenderer } from '../src/render/water.js';
+import { Painter, VIEW_H } from '../src/render/painter.js';
+import { icon } from '../src/ui/icons.js';
+
+const demo = {
+  name: 'demo', w: 1600, water: 99999, ink: 3000,
+  tanks: [120, 1100, 150], shelf: [1240, 1420, 830], order: [1, 3],
+  mixer: [700, 500], rainbowCup: [1060, 830],
+  rocks: [
+    [980, 835, 1520, 835, 1550, 900, 1500, 1010, 1000, 1010, 950, 900],
+    [300, 860, 380, 800, 470, 790, 560, 840, 580, 900, 520, 940, 340, 935],
+  ],
+  nodraw: [[250, 560, 280, 150]],
+};
+
+const W = new World(demo, { n: 4, seed: 3, inv: [{}, {}, {}, {}] });
+const tx = [120, 820, 420, 1100];
+W.tanks.forEach((t, i) => { t.x = tx[i]; t.total = 260; t.left = 260; });
+W.cups[0].x = 1240; W.cups[1].x = 1420; W.mixer.need = [0, 2];
+W.rebuild();
+const line = (p, x0, y0, x1, y1) => { const d = []; const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 14); for (let i = 0; i <= n; i++) d.push(Math.round((x0 + (x1 - x0) * i / n) * 2), Math.round((y0 + (y1 - y0) * i / n) * 2)); W.apply({ t: 'l', p, d }); };
+line(0, 80, 280, 620, 400);
+line(2, 670, 600, 1012, 670);
+line(1, 790, 290, 1226, 500);
+line(3, 1070, 300, 1404, 452);
+W.inv[0].fan = 1; W.apply({ t: 'i', p: 0, k: 'fan', x: 120 * 2, y: 640 * 2, a: 0 });
+W.inv[3].tramp = 1; W.apply({ t: 'i', p: 3, k: 'tramp', x: 860 * 2, y: 860 * 2, a: 22 });
+
+const font = (f) => `${f}`;
+const V = [
+  {
+    id: 'A', name: 'Papier', note: 'ciepłe tło, miękkie cienie, błyszcząca woda',
+    css: { '--f': '"SF Pro Rounded", ui-rounded, -apple-system, system-ui', '--ink': '#2E2B27', '--sub': '#8C857B', '--panel': '#FFFFFF', '--bd': '0', '--r': '14px', '--sh': '0 6px 20px rgba(70,50,20,.12), 0 1px 2px rgba(70,50,20,.08)', '--blur': 'none', '--sel': '#2E2B27', '--selInk': '#FFFFFF', '--track': '#EAE4D9', '--sep': '#EAE4D9', '--rod': '#B8AFA2' },
+    s: {
+      font: '"SF Pro Rounded", ui-rounded, -apple-system, system-ui', bg: '#F2EEE6', bgSolid: '#F2EEE6', abyss: ['rgba(242,238,230,0)', 'rgba(214,206,192,0.95)'],
+      rockFill: '#E0D9CC', rockShadow: ['rgba(80,60,30,0.16)', 22, 8], rockTop: 'rgba(255,255,255,0.55)', rockRound: 22,
+      line: '#2E2B27', lineShadow: 'rgba(70,50,20,0.10)', lineTint: 0, cupBack: 'rgba(255,255,255,0.6)', cupRound: 16, cupStroke: '#2E2B27', cupStrokeW: 3.5, cupGloss: 'rgba(255,255,255,0.9)', cupLabel: '#8C857B',
+      tankBody: '#FFFFFF', tankEmpty: '#EFEAE1', tankShadow: 'rgba(70,50,20,0.16)', tankRound: 14, pipe: '#E5DFD4', nozzle: '#2E2B27',
+      item: '#4A4540', itemTint: 0, wall: '#BDB4A5', tramp: '#2E2B27', zone: 'rgba(46,43,39,0.05)', zoneArrow: 'rgba(46,43,39,0.28)',
+      mixerBody: '#FFFFFF', mixerSlot: '#EFEAE1', nodraw: '#C7BDAC', error: '#E5484D',
+      pal: ['#2F7BF6', '#1DB46A', '#EE4A9C', '#F4B400'],
+    },
+    look: { th: 0.55, rim: 0, rimW: 0.35, rimCol: [0.6, 0.6, 0.6], gloss: 0.5, inner: 0.32, depth: 0.14, alpha: 0.97, sat: 1, light: 1, ice: 0.75, iceCol: [0.9, 0.96, 1] },
+  },
+  {
+    id: 'B', name: 'Mono', note: 'biel i czerń, kolor tylko w wodzie, płasko',
+    css: { '--f': '-apple-system, "SF Pro Display", system-ui', '--ink': '#111111', '--sub': '#8A8A8A', '--panel': '#FFFFFF', '--bd': '1px solid #E6E6E6', '--r': '10px', '--sh': 'none', '--blur': 'none', '--sel': '#111111', '--selInk': '#FFFFFF', '--track': '#EDEDED', '--sep': '#E6E6E6', '--rod': '#111111' },
+    s: {
+      font: '-apple-system, "SF Pro Display", system-ui', bg: '#FFFFFF', bgSolid: '#FFFFFF', abyss: ['rgba(255,255,255,0)', 'rgba(0,0,0,0.07)'],
+      rockFill: '#EDEDED', rockRound: 3,
+      line: '#111111', lineTint: 0, cupBack: 'rgba(0,0,0,0.035)', cupRound: 6, cupStroke: '#111111', cupStrokeW: 2.5, cupLabel: '#8A8A8A',
+      tankBody: '#F3F3F3', tankEmpty: '#FFFFFF', tankStroke: '#111111', tankStrokeW: 2, tankRound: 6, pipe: '#EDEDED', nozzle: '#111111',
+      item: '#111111', itemTint: 0, wall: '#D4D4D4', tramp: '#111111', zone: 'rgba(0,0,0,0.035)', zoneArrow: 'rgba(0,0,0,0.25)',
+      mixerBody: '#FFFFFF', mixerStroke: '#111111', mixerSlot: '#F0F0F0', nodraw: '#BDBDBD', error: '#E5484D',
+      pal: ['#0A6CFF', '#00A859', '#FF2D7A', '#FFB300'],
+    },
+    look: { th: 0.55, rim: 0, rimW: 0.3, rimCol: [0.6, 0.6, 0.6], gloss: 0, inner: 0, depth: 0, alpha: 1, sat: 1, light: 1, ice: 0.75, iceCol: [0.9, 0.96, 1] },
+  },
+  {
+    id: 'C', name: 'Pastel', note: 'gradient nieba, zaokrąglone, bąbelkowa woda, frosted UI',
+    css: { '--f': '"SF Pro Rounded", ui-rounded, -apple-system, system-ui', '--ink': '#3E4563', '--sub': '#8C93B0', '--panel': 'rgba(255,255,255,.62)', '--bd': '1px solid rgba(255,255,255,.9)', '--r': '18px', '--sh': '0 10px 30px rgba(90,100,170,.16)', '--blur': 'blur(18px) saturate(1.4)', '--sel': '#5B6BFF', '--selInk': '#FFFFFF', '--track': 'rgba(91,107,255,.15)', '--sep': 'rgba(62,69,99,.12)', '--rod': '#A7AEC8' },
+    s: {
+      font: '"SF Pro Rounded", ui-rounded, -apple-system, system-ui', bgSolid: '#EEF2FF', abyss: ['rgba(240,236,255,0)', 'rgba(196,192,232,0.9)'],
+      drawBg(ctx, w, h) { const g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#E7F0FF'); g.addColorStop(1, '#FBF1FA'); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h); },
+      rockFill: '#D6DAEE', rockShadow: ['rgba(90,100,170,0.20)', 26, 10], rockTop: 'rgba(255,255,255,0.7)', rockRound: 30,
+      line: '#59617F', lineShadow: 'rgba(90,100,170,0.14)', lineTint: 0.35, cupBack: 'rgba(255,255,255,0.55)', cupRound: 22, cupStroke: '#7C84A6', cupStrokeW: 3.5, cupGloss: 'rgba(255,255,255,0.95)', cupLabel: '#8C93B0',
+      tankBody: 'rgba(255,255,255,0.85)', tankEmpty: 'rgba(220,226,248,0.9)', tankShadow: 'rgba(90,100,170,0.22)', tankRound: 18, pipe: 'rgba(255,255,255,0.7)', nozzle: '#59617F',
+      item: '#59617F', itemTint: 0.3, wall: '#B7BCD8', tramp: '#5B6BFF', zone: 'rgba(91,107,255,0.06)', zoneArrow: 'rgba(91,107,255,0.4)',
+      mixerBody: 'rgba(255,255,255,0.9)', mixerSlot: 'rgba(214,218,238,0.8)', nodraw: '#A9A6D6', error: '#E5484D',
+      pal: ['#4C8BFF', '#2BC98A', '#FF6EB0', '#FFC53D'],
+    },
+    look: { th: 0.55, rim: 0, rimW: 0.35, rimCol: [0.6, 0.6, 0.6], gloss: 0.7, inner: 0.6, depth: 0.1, alpha: 0.95, sat: 0.95, light: 1.03, ice: 0.75, iceCol: [0.92, 0.97, 1] },
+  },
+  {
+    id: 'D', name: 'Kontur', note: 'szkic techniczny: kontury, kreskowanie, woda z obrysem',
+    css: { '--f': '-apple-system, system-ui', '--ink': '#1A1A1A', '--sub': '#6F6F69', '--panel': '#F7F7F4', '--bd': '1.5px solid #1A1A1A', '--r': '6px', '--sh': '3px 3px 0 #1A1A1A', '--blur': 'none', '--sel': '#1A1A1A', '--selInk': '#F7F7F4', '--track': '#DADAD4', '--sep': '#1A1A1A', '--rod': '#1A1A1A' },
+    s: {
+      font: '"SF Mono", ui-monospace, Menlo, monospace', bgSolid: '#F7F7F4', abyss: ['rgba(247,247,244,0)', 'rgba(26,26,26,0.07)'],
+      drawBg(ctx, w, h, cam, sc) { ctx.fillStyle = '#F7F7F4'; ctx.fillRect(0, 0, w, h); ctx.fillStyle = '#D9D9D2'; const st = 40 * sc, ox = -(cam * sc) % st; for (let x = ox; x < w; x += st) for (let y = st / 2; y < h; y += st) ctx.fillRect(x, y, 1.6, 1.6); },
+      rockFill: '#F7F7F4', rockHatch: '#B5B5AD', rockStroke: '#1A1A1A', rockStrokeW: 2.5, rockRound: 8,
+      line: '#1A1A1A', lineTint: 0, cupBack: 'rgba(247,247,244,0.0)', cupRound: 4, cupStroke: '#1A1A1A', cupStrokeW: 3, cupLabel: '#1A1A1A',
+      tankBody: '#F7F7F4', tankEmpty: '#F7F7F4', tankStroke: '#1A1A1A', tankStrokeW: 2.5, tankRound: 4, pipe: '#DADAD4', nozzle: '#1A1A1A',
+      item: '#1A1A1A', itemTint: 0, wall: '#1A1A1A', tramp: '#1A1A1A', zone: 'rgba(26,26,26,0.04)', zoneArrow: 'rgba(26,26,26,0.4)',
+      mixerBody: '#F7F7F4', mixerStroke: '#1A1A1A', mixerSlot: '#E6E6E0', nodraw: '#8F8F88', error: '#E5484D',
+      pal: ['#2B6BFF', '#11A05B', '#F0428C', '#F0B000'],
+    },
+    look: { th: 0.55, rim: 1, rimW: 0.22, rimCol: [0.38, 0.38, 0.38], gloss: 0, inner: 0.12, depth: 0, alpha: 1, sat: 1, light: 1, ice: 0.75, iceCol: [0.9, 0.96, 1] },
+  },
+];
+
+const grid = document.getElementById('grid');
+const tiles = V.map((v, idx) => {
+  const el = document.createElement('div');
+  el.className = 'tile';
+  const cb = document.createElement('canvas'), cw = document.createElement('canvas'), cf = document.createElement('canvas');
+  el.append(cb, cw, cf);
+  const hud = document.createElement('div');
+  hud.className = 'hud';
+  for (const [k, val] of Object.entries(v.css)) hud.style.setProperty(k, val);
+  const pal = v.s.pal;
+  const slot = (ic, n, cls = '') => `<div class="slot ${cls}">${icon(ic)}${n !== undefined ? `<span class="n">${n}</span>` : ''}</div>`;
+  hud.innerHTML = `
+    <div class="top">
+      <div class="pumps">
+        <div class="pwrap"><div class="pill plunger" style="--c:${pal[0]}"><div class="handle"><i class="bar"></i><i class="rod"></i></div><div class="box"></div></div><small>Spacja</small></div>
+        ${[1, 2, 3].map((i) => `<div class="pill plunger small" style="--c:${pal[i]}"><div class="handle"><i class="bar"></i><i class="rod"></i></div><div class="box"></div></div>`).join('')}
+      </div>
+      <div class="pill mini"><canvas></canvas></div>
+      <div style="display:flex;gap:8px">
+        <div class="pill who">${pal.map((c, i) => `<i style="--c:${c}"></i>`).join('')}<span style="margin-left:2px">4/4</span></div>
+        <div class="pill money">${icon('coin', 20)}<span>240</span></div>
+      </div>
+    </div>
+    <div class="bar2">
+      <div class="slot sel">${icon('marker')}<span class="ink"><i></i></span></div>
+      ${slot('eraser')}
+      <span class="sep"></span>
+      ${slot('funnel', 2)}${slot('pipe', 1)}${slot('tramp', 1)}${slot('fan', 0, 'off')}${slot('lift', 1)}
+      <span class="sep"></span>
+      ${slot('ice', 1)}${slot('magnet', 0, 'off')}${slot('refill', 2)}
+    </div>
+    <div class="end"><div class="pill btn">${icon('flag', 18)} Zakończ</div></div>`;
+  el.append(hud);
+  const tag = document.createElement('div');
+  tag.className = 'tag';
+  tag.innerHTML = `<b>${v.id}</b>${v.name} <span style="opacity:.6;font-weight:500">· ${v.note}</span>`;
+  el.append(tag);
+  grid.append(el);
+  const wr = new WaterRenderer(cw);
+  wr.setPalette(v.s.pal);
+  const painter = new Painter(v.s);
+  el.onclick = () => { const solo = grid.classList.toggle('solo'); tiles.forEach((t) => t.el.classList.toggle('on', solo && t === T)); resize(); };
+  const T = { el, cb, cw, cf, wr, painter, v, hud, mini: hud.querySelector('.mini canvas'), plungers: hud.querySelectorAll('.plunger') };
+  return T;
+});
+addEventListener('keydown', (e) => { const i = '1234'.indexOf(e.key); if (i >= 0) { grid.classList.add('solo'); tiles.forEach((t, j) => t.el.classList.toggle('on', j === i)); resize(); } if (e.key === 'Escape') { grid.classList.remove('solo'); tiles.forEach((t) => t.el.classList.remove('on')); resize(); } });
+
+function resize() {
+  for (const T of tiles) {
+    const r = T.el.getBoundingClientRect();
+    T.w = r.width; T.h = r.height;
+    const dpr = Math.min(devicePixelRatio, 2);
+    for (const c of [T.cb, T.cf]) { c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr); }
+    T.dpr = dpr;
+    T.wr.resize(r.width, r.height, Math.min(devicePixelRatio, 1.5));
+    const mr = T.mini.getBoundingClientRect();
+    T.mini.width = Math.round(mr.width * dpr); T.mini.height = Math.round(mr.height * dpr);
+  }
+}
+addEventListener('resize', resize);
+resize();
+
+const sched = [[0, 240, 520], [60, 240, 520], [130, 200, 480], [200, 220, 500]];
+let acc = 0, last = performance.now();
+function frame(now) {
+  acc += Math.min(100, now - last); last = now;
+  while (acc >= 1000 / 60) {
+    acc -= 1000 / 60;
+    W.tanks.forEach((t, i) => { const [o, on, per] = sched[i]; const ph = (W.tick + per - o) % per; t.on = ph < on; if (t.left <= 0) t.left = t.total; });
+    W.cups.forEach((c) => { if (c.count > 420) { c.count = 0; c.wrong = 0; } });
+    W.step();
+  }
+  const time = now / 1000;
+  const fx = W.fx.splice(0);
+  for (const T of tiles) {
+    if (!T.w || T.el.offsetParent === null) continue;
+    const scale = T.h / VIEW_H, vis = T.w / scale, cam = (W.lv.w - vis) / 2;
+    const cbx = T.cb.getContext('2d'), cfx = T.cf.getContext('2d');
+    T.painter.bg(cbx, W, cam, scale, T.dpr, T.w, T.h, time);
+    T.wr.render(W.fluid, cam, scale, time, T.v.look);
+    W.fx.push(...fx);
+    T.painter.front(cfx, W, cam, scale, T.dpr, T.w, T.h, time);
+    W.fx.length = 0;
+    const cx = 300 + Math.sin(time * 0.7) * 260 + cam * 0, cy = 420 + Math.sin(time * 1.3) * 140;
+    cfx.setTransform(T.dpr * scale, 0, 0, T.dpr * scale, -cam * scale * T.dpr, 0);
+    drawCursor(cfx, cx + 600, cy, T.v.s.pal[1], 'Ola', T.v.s.font, 1 / scale);
+    T.plungers.forEach((p, i) => p.classList.toggle('down', W.tanks[i].on));
+    drawMini(T, cam, vis);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+function drawCursor(ctx, x, y, c, name, f, k) {
+  ctx.save();
+  ctx.translate(x, y); ctx.scale(k, k);
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 17); ctx.lineTo(4.5, 13); ctx.lineTo(8, 20); ctx.lineTo(10.5, 19); ctx.lineTo(7.2, 12); ctx.lineTo(13, 12); ctx.closePath();
+  ctx.fillStyle = c; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.fill(); ctx.stroke();
+  ctx.font = `600 12px ${f}`;
+  const w = ctx.measureText(name).width + 12;
+  ctx.fillStyle = c; ctx.beginPath(); ctx.roundRect(12, 18, w, 20, 6); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.fillText(name, 18, 32);
+  ctx.restore();
+}
+
+function drawMini(T, cam, vis) {
+  const c = T.mini, g = c.getContext('2d'), w = c.width, h = c.height, s = T.v.s;
+  const k = Math.min(w / W.lv.w, h / VIEW_H);
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = s.bgSolid; g.fillRect(0, 0, w, h);
+  g.setTransform(k, 0, 0, k, (w - W.lv.w * k) / 2, 0);
+  g.fillStyle = s.rockStroke || s.wall;
+  for (const p of W.lv.rocks) { g.beginPath(); for (let i = 0; i < p.length; i += 2) g.lineTo(p[i], p[i + 1]); g.fill(); }
+  g.strokeStyle = s.line; g.lineWidth = 14; g.lineCap = 'round';
+  g.beginPath(); for (const L of W.lines) { g.moveTo(L.ax, L.ay); g.lineTo(L.bx, L.by); } g.stroke();
+  W.tanks.forEach((t) => { g.fillStyle = s.pal[t.p]; g.fillRect(t.x - 30, t.y - 40, 60, 80); });
+  W.cups.forEach((cu) => { g.fillStyle = cu.c === 4 ? '#bbb' : s.pal[cu.c]; g.fillRect(cu.x - 54, cu.y - 150, 108, 150); });
+  g.strokeStyle = s.line; g.lineWidth = 3 / k * 1.2;
+  g.strokeRect(Math.max(0, cam), 8, Math.min(vis, W.lv.w), VIEW_H - 16);
+}
+</script>
+</body>
+</html>
