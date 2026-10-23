@@ -1,0 +1,6 @@
+.DS_Store
+Niepotrzebne/shots/
+Niepotrzebne/fb-token.py
+Niepotrzebne/firebase/.firebaserc
+Niepotrzebne/firebase/*.log
+**/Niepotrzebne/shots/

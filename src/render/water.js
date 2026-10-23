@@ -1,49 +1,34 @@
-// Spillway: WebGL2 metaball water. Particles splat into a half-res density field, a composite pass shades the surface.
+// Spillway: WebGL2 metaball water. Particles splat per-colour weights into a half-res field (two render targets), a composite pass shades the surface with the dominant colour.
 
 const VS_PTS = `#version 300 es
 in vec3 aP;
 uniform vec2 uRes;
-uniform float uCam, uScale, uRad, uTime;
-uniform vec3 uPal[5];
-out vec3 vC;
+uniform float uCam, uScale, uRad;
+out float vCol;
 out float vIce;
-out float vRain;
 void main(){
-  float c = mod(aP.z, 8.0);
+  vCol = mod(aP.z, 8.0);
   vIce = aP.z >= 8.0 ? 1.0 : 0.0;
-  vRain = c > 3.5 ? 1.0 : 0.0;
   vec2 s = vec2((aP.x - uCam) * uScale, aP.y * uScale);
   gl_Position = vec4(s.x / uRes.x * 2.0 - 1.0, 1.0 - s.y / uRes.y * 2.0, 0.0, 1.0);
   gl_PointSize = uRad * uScale * 2.0;
-  if (c > 3.5) vC = vec3(0.86, 0.86, 0.9);
-  else vC = c < 0.5 ? uPal[0] : c < 1.5 ? uPal[1] : c < 2.5 ? uPal[2] : uPal[3];
 }`;
 
 const FS_PTS = `#version 300 es
 precision highp float;
-in vec3 vC;
+in float vCol;
 in float vIce;
-out vec4 o;
+uniform float uK;
+layout(location = 0) out vec4 o0;
+layout(location = 1) out vec4 o1;
 void main(){
   vec2 d = gl_PointCoord * 2.0 - 1.0;
   float r2 = dot(d, d);
   if (r2 >= 1.0) discard;
-  float w = 1.0 - r2; w = w * w * w;
-  o = vec4(vC * w, w);
-}`;
-
-const FS_ICE = `#version 300 es
-precision highp float;
-in vec3 vC;
-in float vIce;
-in float vRain;
-out vec4 o;
-void main(){
-  vec2 d = gl_PointCoord * 2.0 - 1.0;
-  float r2 = dot(d, d);
-  if (r2 >= 1.0) discard;
-  float w = 1.0 - r2; w = w * w * w;
-  o = vec4(vIce * w, vRain * w, 0.0, 0.0);
+  float w = 1.0 - r2; w = w * w * w * uK;
+  vec4 mask = vec4(step(abs(vCol - 0.0), 0.5), step(abs(vCol - 1.0), 0.5), step(abs(vCol - 2.0), 0.5), step(abs(vCol - 3.0), 0.5));
+  o0 = mask * w;
+  o1 = vec4(step(3.5, vCol) * w, vIce * w, 0.0, 0.0);
 }`;
 
 const VS_FULL = `#version 300 es
@@ -54,33 +39,37 @@ void main(){ vUv = aQ * 0.5 + 0.5; gl_Position = vec4(aQ, 0.0, 1.0); }`;
 const FS_COMP = `#version 300 es
 precision highp float;
 in vec2 vUv;
-uniform sampler2D uField, uIceF;
+uniform sampler2D uA, uB;
 uniform vec2 uTexel;
-uniform float uTh, uRim, uRimW, uGloss, uInner, uDepth, uAlpha, uSat, uLight, uIceAmt;
+uniform vec3 uPal[4];
+uniform float uK, uTh, uRim, uRimW, uGloss, uInner, uDepth, uAlpha, uSat, uLight, uIceAmt;
 uniform vec3 uRimCol, uIceCol;
 uniform float uCam, uScale, uDpr, uTime;
 out vec4 o;
 vec3 hue(float h){ return clamp(abs(mod(h*6.0+vec3(0.,4.,2.),6.)-3.)-1.,0.,1.); }
+float dens(vec2 uv){ vec4 a = texture(uA, uv); vec4 b = texture(uB, uv); return (a.x + a.y + a.z + a.w + b.x) / uK; }
 void main(){
-  vec4 f = texture(uField, vUv);
-  float a = f.a;
+  vec4 fa = texture(uA, vUv) / uK;
+  vec4 fb = texture(uB, vUv) / uK;
+  float a = fa.x + fa.y + fa.z + fa.w + fb.x;
   float aa = max(fwidth(a), 0.02);
   float m = smoothstep(uTh - aa, uTh + aa, a);
   if (m <= 0.0) discard;
-  vec3 base = f.rgb / max(a, 1e-4);
-  float l = dot(base, vec3(0.299, 0.587, 0.114));
-  base = mix(vec3(l), base, uSat) * uLight;
-  vec4 ex = texture(uIceF, vUv);
-  float rain = clamp(ex.g / max(a, 1e-4), 0.0, 1.0);
-  if (rain > 0.001) {
+  float ia = 1.0 / max(a, 1e-4);
+  vec4 e = fa * ia; e *= e; e *= e;
+  float er = fb.x * ia; er *= er; er *= er;
+  vec3 rc = vec3(0.0);
+  if (er > 1e-5) {
     vec2 wp = gl_FragCoord.xy / uDpr / uScale;
     float h = fract((wp.x + uCam - wp.y * 0.6) * 0.0075 - uTime * 0.35);
-    vec3 rc = mix(hue(h), vec3(1.0), 0.08) * uLight;
-    base = mix(base, rc, rain);
+    rc = mix(hue(h), vec3(1.0), 0.08);
   }
-  base = mix(base, uIceCol, clamp(ex.r / max(a, 1e-4), 0.0, 1.0) * uIceAmt);
-  float ax = texture(uField, vUv + vec2(uTexel.x * 2.0, 0.0)).a - texture(uField, vUv - vec2(uTexel.x * 2.0, 0.0)).a;
-  float ay = texture(uField, vUv + vec2(0.0, uTexel.y * 2.0)).a - texture(uField, vUv - vec2(0.0, uTexel.y * 2.0)).a;
+  vec3 base = (e.x * uPal[0] + e.y * uPal[1] + e.z * uPal[2] + e.w * uPal[3] + er * rc) / max(e.x + e.y + e.z + e.w + er, 1e-6);
+  float l = dot(base, vec3(0.299, 0.587, 0.114));
+  base = mix(vec3(l), base, uSat) * uLight;
+  base = mix(base, uIceCol, clamp(fb.y * ia, 0.0, 1.0) * uIceAmt);
+  float ax = dens(vUv + vec2(uTexel.x * 2.0, 0.0)) - dens(vUv - vec2(uTexel.x * 2.0, 0.0));
+  float ay = dens(vUv + vec2(0.0, uTexel.y * 2.0)) - dens(vUv - vec2(0.0, uTexel.y * 2.0));
   vec2 g = vec2(ax, ay);
   float gl = length(g);
   vec2 n = gl > 1e-5 ? -g / gl : vec2(0.0);
@@ -124,8 +113,8 @@ export class WaterRenderer {
     if (!gl) throw new Error('WebGL2 unavailable');
     this.gl = gl;
     this.half = !!gl.getExtension('EXT_color_buffer_float') || !!gl.getExtension('EXT_color_buffer_half_float');
+    this.k = this.half ? 1 : 0.12;
     this.pPts = prog(gl, VS_PTS, FS_PTS);
-    this.pIce = prog(gl, VS_PTS, FS_ICE);
     this.pComp = prog(gl, VS_FULL, FS_COMP);
     this.buf = gl.createBuffer();
     this.quad = gl.createBuffer();
@@ -146,17 +135,17 @@ export class WaterRenderer {
     gl.bindVertexArray(null);
     this.data = new Float32Array(3 * 4096);
     this.fw = 0; this.fh = 0;
-    this.pal = new Float32Array(15);
+    this.pal = new Float32Array(12);
     this.look = { ...DEFAULT_LOOK };
   }
 
   setPalette(cols) {
-    cols.forEach((c, i) => { const v = typeof c === 'string' ? hex(c) : c; this.pal[i * 3] = v[0]; this.pal[i * 3 + 1] = v[1]; this.pal[i * 3 + 2] = v[2]; });
+    cols.slice(0, 4).forEach((c, i) => { const v = typeof c === 'string' ? hex(c) : c; this.pal[i * 3] = v[0]; this.pal[i * 3 + 1] = v[1]; this.pal[i * 3 + 2] = v[2]; });
   }
 
   target(w, h) {
     const gl = this.gl;
-    const mk = () => {
+    const tex = () => {
       const t = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, t);
       if (this.half) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
@@ -165,14 +154,17 @@ export class WaterRenderer {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      const fb = gl.createFramebuffer();
-      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
-      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
-      return { t, fb };
+      return t;
     };
-    for (const k of ['field', 'iceF']) if (this[k]) { gl.deleteTexture(this[k].t); gl.deleteFramebuffer(this[k].fb); }
-    this.field = mk();
-    this.iceF = mk();
+    if (this.fbo) { gl.deleteTexture(this.tA); gl.deleteTexture(this.tB); gl.deleteFramebuffer(this.fbo); }
+    this.tA = tex();
+    this.tB = tex();
+    this.fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.tA, 0);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, this.tB, 0);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.fw = w; this.fh = h;
   }
 
@@ -186,55 +178,50 @@ export class WaterRenderer {
 
   render(fluid, camX, scale, time, look) {
     const gl = this.gl, L = look || this.look;
-    let n = fluid.n;
+    const n = fluid.n;
     if (this.data.length < n * 3) this.data = new Float32Array(n * 3 + 3072);
     const D = this.data, minX = camX - 40, maxX = camX + this.cssW / scale + 40;
-    let m = 0, anyIce = false, anyRain = false;
+    let m = 0;
     for (let i = 0; i < n; i++) {
       const x = fluid.x[i];
       if (x < minX || x > maxX) continue;
       D[m * 3] = x; D[m * 3 + 1] = fluid.y[i];
-      const ice = fluid.ice[i] > 0;
-      if (ice) anyIce = true;
-      if (fluid.col[i] === 4) anyRain = true;
-      D[m * 3 + 2] = fluid.col[i] + (ice ? 8 : 0);
+      D[m * 3 + 2] = fluid.col[i] + (fluid.ice[i] > 0 ? 8 : 0);
       m++;
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
     gl.bufferData(gl.ARRAY_BUFFER, D.subarray(0, m * 3), gl.STREAM_DRAW);
-    const fs = 0.5 * this.dpr;
-    const setPts = (pp) => {
-      gl.useProgram(pp.p);
-      gl.uniform2f(pp.u.uRes, this.cssW, this.cssH);
-      gl.uniform1f(pp.u.uCam, camX);
-      gl.uniform1f(pp.u.uScale, scale);
-      gl.uniform1f(pp.u.uRad, 13 * fs);
-      gl.uniform1f(pp.u.uTime, time);
-      gl.uniform3fv(pp.u.uPal, this.pal);
-    };
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE);
     gl.viewport(0, 0, this.fw, this.fh);
-    gl.bindVertexArray(this.vaoPts);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.field.fb);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    setPts(this.pPts);
-    if (m) gl.drawArrays(gl.POINTS, 0, m);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.iceF.fb);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    if (anyIce || anyRain) { setPts(this.pIce); gl.drawArrays(gl.POINTS, 0, m); }
+    if (m) {
+      const p = this.pPts;
+      gl.useProgram(p.p);
+      gl.uniform2f(p.u.uRes, this.cssW, this.cssH);
+      gl.uniform1f(p.u.uCam, camX);
+      gl.uniform1f(p.u.uScale, scale);
+      gl.uniform1f(p.u.uRad, 13 * 0.5 * this.dpr);
+      gl.uniform1f(p.u.uK, this.k);
+      gl.bindVertexArray(this.vaoPts);
+      gl.drawArrays(gl.POINTS, 0, m);
+    }
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
+    if (!m) return;
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     const c = this.pComp;
     gl.useProgram(c.p);
-    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.field.t); gl.uniform1i(c.u.uField, 0);
-    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.iceF.t); gl.uniform1i(c.u.uIceF, 1);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.tA); gl.uniform1i(c.u.uA, 0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.tB); gl.uniform1i(c.u.uB, 1);
     gl.uniform2f(c.u.uTexel, 1 / this.fw, 1 / this.fh);
+    gl.uniform3fv(c.u.uPal, this.pal);
+    gl.uniform1f(c.u.uK, this.k);
     gl.uniform1f(c.u.uTh, L.th); gl.uniform1f(c.u.uRim, L.rim); gl.uniform1f(c.u.uRimW, L.rimW);
     gl.uniform3fv(c.u.uRimCol, L.rimCol); gl.uniform1f(c.u.uGloss, L.gloss); gl.uniform1f(c.u.uInner, L.inner);
     gl.uniform1f(c.u.uDepth, L.depth); gl.uniform1f(c.u.uAlpha, L.alpha); gl.uniform1f(c.u.uSat, L.sat);
